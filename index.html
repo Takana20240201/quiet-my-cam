@@ -88,14 +88,35 @@
     width: 52px; height: 52px;
     border-radius: 10px;
     border: 1px solid var(--line);
-    overflow: hidden;
+    overflow: visible;
     background: #0C0B09;
     display: flex;
     align-items: center;
     justify-content: center;
+    position: relative;
   }
-  #thumb { width: 100%; height: 100%; object-fit: cover; display: none; }
+  #thumb {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: none;
+    border-radius: 9px;
+  }
   #thumbEmpty { font-size: 10px; color: var(--dim); letter-spacing: 0.1em; }
+  #thumbCount {
+    position: absolute;
+    top: -7px; right: -7px;
+    min-width: 20px; height: 20px;
+    padding: 0 5px;
+    border-radius: 10px;
+    background: var(--brass);
+    color: #171204;
+    font-size: 12px;
+    font-weight: 700;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
 
   #shutter {
     justify-self: center;
@@ -148,8 +169,8 @@
     100% { opacity: 0; }
   }
 
-  /* ---------- review overlay ---------- */
-  #review {
+  /* ---------- gallery overlay ---------- */
+  #gallery {
     position: fixed;
     inset: 0;
     background: var(--bg);
@@ -157,18 +178,45 @@
     display: none;
     flex-direction: column;
   }
-  #review.open { display: flex; }
-  #reviewImg {
+  #gallery.open { display: flex; }
+  #galleryHead {
+    padding: calc(env(safe-area-inset-top) + 14px) 20px 12px;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    color: var(--ink);
+    border-bottom: 1px solid var(--line);
+    font-variant-numeric: tabular-nums;
+  }
+  #grid {
     flex: 1;
     min-height: 0;
-    object-fit: contain;
-    width: 100%;
-    background: #050505;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 3px;
+    padding: 3px;
+    align-content: start;
   }
-  #reviewBar {
+  .gitem {
+    aspect-ratio: 3 / 4;
+    overflow: hidden;
+    background: #0C0B09;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+  }
+  .gitem img {
+    width: 100%; height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  #galleryBar {
     display: flex;
-    gap: 12px;
-    padding: 16px 20px calc(env(safe-area-inset-bottom) + 20px);
+    gap: 10px;
+    padding: 14px 16px calc(env(safe-area-inset-bottom) + 18px);
+    border-top: 1px solid var(--line);
   }
   .btn {
     flex: 1;
@@ -187,13 +235,37 @@
     border-color: var(--brass);
     color: #171204;
   }
+  .btn.danger { color: #E06C5A; }
+
+  /* ---------- single photo viewer ---------- */
+  #viewer {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 40;
+    display: none;
+    flex-direction: column;
+  }
+  #viewer.open { display: flex; }
+  #viewerImg {
+    flex: 1;
+    min-height: 0;
+    object-fit: contain;
+    width: 100%;
+    background: #050505;
+  }
+  #viewerBar {
+    display: flex;
+    gap: 10px;
+    padding: 14px 16px calc(env(safe-area-inset-bottom) + 18px);
+  }
 
   /* ---------- error screen ---------- */
   #error {
     position: fixed;
     inset: 0;
     background: var(--bg);
-    z-index: 40;
+    z-index: 50;
     display: none;
     flex-direction: column;
     align-items: center;
@@ -223,21 +295,33 @@
 </div>
 
 <div id="controls">
-  <div id="thumbWrap">
-    <img id="thumb" alt="直前の写真">
+  <button id="thumbWrap" aria-label="撮影した写真を見る">
+    <img id="thumb" alt="">
     <span id="thumbEmpty">未撮影</span>
-  </div>
+    <span id="thumbCount">0</span>
+  </button>
   <button id="shutter" aria-label="撮影"></button>
   <button id="flip" aria-label="カメラ切り替え">&#8635;</button>
 </div>
 
 <div id="flash"></div>
 
-<div id="review">
-  <img id="reviewImg" alt="撮影した写真">
-  <div id="reviewBar">
-    <button class="btn" id="closeReview">閉じる</button>
-    <button class="btn primary" id="saveBtn">保存</button>
+<div id="gallery">
+  <div id="galleryHead">写真</div>
+  <div id="grid"></div>
+  <div id="galleryBar">
+    <button class="btn" id="closeGallery">閉じる</button>
+    <button class="btn danger" id="deleteAllBtn">すべて削除</button>
+    <button class="btn primary" id="saveAllBtn">すべて保存</button>
+  </div>
+</div>
+
+<div id="viewer">
+  <img id="viewerImg" alt="撮影した写真">
+  <div id="viewerBar">
+    <button class="btn" id="closeViewer">戻る</button>
+    <button class="btn danger" id="deleteOneBtn">削除</button>
+    <button class="btn primary" id="saveOneBtn">保存</button>
   </div>
 </div>
 
@@ -256,11 +340,13 @@
   const flash = document.getElementById("flash");
   const thumb = document.getElementById("thumb");
   const thumbEmpty = document.getElementById("thumbEmpty");
+  const thumbCount = document.getElementById("thumbCount");
   const thumbWrap = document.getElementById("thumbWrap");
-  const review = document.getElementById("review");
-  const reviewImg = document.getElementById("reviewImg");
-  const saveBtn = document.getElementById("saveBtn");
-  const closeReview = document.getElementById("closeReview");
+  const gallery = document.getElementById("gallery");
+  const galleryHead = document.getElementById("galleryHead");
+  const grid = document.getElementById("grid");
+  const viewer = document.getElementById("viewer");
+  const viewerImg = document.getElementById("viewerImg");
   const zoomBadge = document.getElementById("zoomBadge");
   const resBadge = document.getElementById("resBadge");
   const errorBox = document.getElementById("error");
@@ -271,8 +357,8 @@
   let facing = "environment";   // 背面から開始
   let zoom = 1;                 // 現在のズーム倍率
   let zoomCap = null;           // ハードウェアズームの対応範囲
-  let lastBlob = null;          // 直前の撮影データ
-  let lastUrl = null;
+  let photos = [];              // 撮影した写真 {blob, url, name} を全部保持
+  let viewIndex = -1;           // ビューワーで表示中の写真番号
 
   // ---------- カメラ起動 ----------
   async function startCamera() {
@@ -293,10 +379,8 @@
     track = stream.getVideoTracks()[0];
     video.srcObject = stream;
 
-    // 前面カメラは鏡像表示(保存時は補正)
     applyViewTransform();
 
-    // ハードウェアズーム対応チェック
     zoomCap = null;
     if (track.getCapabilities) {
       const caps = track.getCapabilities();
@@ -327,7 +411,7 @@
     if (e && (e.name === "NotAllowedError" || e.name === "PermissionDeniedError")) {
       msg = "カメラへのアクセスが許可されていません。アドレスバー横の設定、またはiOSの「設定 > Safari > カメラ」から許可してください。";
     } else if (location.protocol === "file:" || (location.protocol === "http:" && location.hostname !== "localhost")) {
-      msg = "ブラウザのカメラAPIはHTTPS(またはlocalhost)でのみ動作します。GitHub Pagesなどに置いてhttpsのURLで開いてください。";
+      msg = "ブラウザのカメラAPIはHTTPS(またはlocalhost)でのみ動作します。GitHub PagesなどのhttpsのURLで開いてください。";
     } else {
       msg = "エラー: " + (e && e.message ? e.message : e);
     }
@@ -339,11 +423,9 @@
     const maxZ = zoomCap ? Math.min(zoomCap.max, 10) : 5;
     zoom = Math.min(Math.max(z, 1), maxZ);
     if (zoomCap && track) {
-      // ハードウェア(センサー)ズーム
       track.applyConstraints({ advanced: [{ zoom: zoom }] }).catch(() => {});
       video.style.transform = facing === "user" ? "scaleX(-1)" : "";
     } else {
-      // デジタルズーム: 表示はCSS拡大、保存時に中央を切り出し
       applyViewTransform();
     }
     zoomBadge.textContent = zoom.toFixed(1) + "×";
@@ -358,13 +440,14 @@
   // ピンチ操作
   let pinchStartDist = 0;
   let pinchStartZoom = 1;
-  document.getElementById("stage").addEventListener("touchstart", (ev) => {
+  const stage = document.getElementById("stage");
+  stage.addEventListener("touchstart", (ev) => {
     if (ev.touches.length === 2) {
       pinchStartDist = touchDist(ev);
       pinchStartZoom = zoom;
     }
   }, { passive: true });
-  document.getElementById("stage").addEventListener("touchmove", (ev) => {
+  stage.addEventListener("touchmove", (ev) => {
     if (ev.touches.length === 2 && pinchStartDist > 0) {
       ev.preventDefault();
       setZoom(pinchStartZoom * (touchDist(ev) / pinchStartDist));
@@ -380,7 +463,7 @@
   function capture() {
     if (!video.videoWidth) return;
     flash.classList.remove("fire");
-    void flash.offsetWidth; // アニメーション再始動
+    void flash.offsetWidth;
     flash.classList.add("fire");
 
     const vw = video.videoWidth;
@@ -389,7 +472,6 @@
     const ctx = canvas.getContext("2d");
 
     if (zoomCap || zoom === 1) {
-      // ハードウェアズーム or 等倍: フレームをそのまま保存
       canvas.width = vw;
       canvas.height = vh;
       drawFrame(ctx, 0, 0, vw, vh, vw, vh);
@@ -404,7 +486,6 @@
 
     function drawFrame(c, sx, sy, sw, sh, dw, dh) {
       if (facing === "user") {
-        // 前面カメラ: 鏡像を補正して保存
         c.translate(dw, 0);
         c.scale(-1, 1);
       }
@@ -413,35 +494,29 @@
 
     canvas.toBlob((blob) => {
       if (!blob) return;
-      lastBlob = blob;
-      if (lastUrl) URL.revokeObjectURL(lastUrl);
-      lastUrl = URL.createObjectURL(blob);
-      thumb.src = lastUrl;
-      thumb.style.display = "block";
-      thumbEmpty.style.display = "none";
+      photos.push({
+        blob: blob,
+        url: URL.createObjectURL(blob),
+        name: "photo-" + timestamp() + "-" + photos.length + ".jpg"
+      });
+      updateThumb();
     }, "image/jpeg", 0.92);
   }
 
-  // ---------- 保存 ----------
-  async function savePhoto() {
-    if (!lastBlob) return;
-    const name = "photo-" + timestamp() + ".jpg";
-    const file = new File([lastBlob], name, { type: "image/jpeg" });
-
-    // iOSでは共有シート経由で「画像を保存」→写真アプリに入る
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      try {
-        await navigator.share({ files: [file] });
-        return;
-      } catch (e) {
-        if (e.name === "AbortError") return; // ユーザーがキャンセル
-      }
+  function updateThumb() {
+    const n = photos.length;
+    if (n === 0) {
+      thumb.style.display = "none";
+      thumbEmpty.style.display = "";
+      thumbCount.style.display = "none";
+      thumb.src = "";
+    } else {
+      thumb.src = photos[n - 1].url;
+      thumb.style.display = "block";
+      thumbEmpty.style.display = "none";
+      thumbCount.style.display = "flex";
+      thumbCount.textContent = n;
     }
-    // フォールバック: ダウンロード(Filesアプリ/PCのダウンロードへ)
-    const a = document.createElement("a");
-    a.href = lastUrl;
-    a.download = name;
-    a.click();
   }
 
   function timestamp() {
@@ -451,24 +526,119 @@
            "-" + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
   }
 
+  // ---------- ギャラリー ----------
+  function openGallery() {
+    if (photos.length === 0) return;
+    renderGallery();
+    gallery.classList.add("open");
+  }
+
+  function renderGallery() {
+    galleryHead.textContent = "写真 " + photos.length + "枚";
+    grid.innerHTML = "";
+    photos.forEach((p, i) => {
+      const b = document.createElement("button");
+      b.className = "gitem";
+      const img = document.createElement("img");
+      img.src = p.url;
+      img.alt = (i + 1) + "枚目";
+      b.appendChild(img);
+      b.addEventListener("click", () => openViewer(i));
+      grid.appendChild(b);
+    });
+  }
+
+  function openViewer(i) {
+    viewIndex = i;
+    viewerImg.src = photos[i].url;
+    viewer.classList.add("open");
+  }
+
+  function closeViewerFn() {
+    viewer.classList.remove("open");
+    viewIndex = -1;
+  }
+
+  // ---------- 保存 ----------
+  function toFile(p) {
+    return new File([p.blob], p.name, { type: "image/jpeg" });
+  }
+
+  async function sharePhotos(list) {
+    const files = list.map(toFile);
+    // iOSでは共有シート経由で「画像を保存」→写真アプリにまとめて入る
+    if (navigator.canShare && navigator.canShare({ files: files })) {
+      try {
+        await navigator.share({ files: files });
+        return true;
+      } catch (e) {
+        if (e.name === "AbortError") return false; // キャンセル
+      }
+    }
+    // フォールバック: 順番にダウンロード
+    for (const p of list) {
+      const a = document.createElement("a");
+      a.href = p.url;
+      a.download = p.name;
+      a.click();
+      await new Promise(r => setTimeout(r, 300));
+    }
+    return true;
+  }
+
+  function removePhotos(indices) {
+    // 後ろから消して番号ズレを防ぐ
+    indices.sort((a, b) => b - a).forEach(i => {
+      URL.revokeObjectURL(photos[i].url);
+      photos.splice(i, 1);
+    });
+    updateThumb();
+    if (photos.length === 0) {
+      gallery.classList.remove("open");
+    } else {
+      renderGallery();
+    }
+  }
+
   // ---------- イベント ----------
   shutter.addEventListener("click", capture);
   flipBtn.addEventListener("click", () => {
     facing = facing === "environment" ? "user" : "environment";
     startCamera();
   });
-  thumbWrap.addEventListener("click", () => {
-    if (!lastUrl) return;
-    reviewImg.src = lastUrl;
-    review.classList.add("open");
+  thumbWrap.addEventListener("click", openGallery);
+  document.getElementById("closeGallery").addEventListener("click", () => gallery.classList.remove("open"));
+  document.getElementById("saveAllBtn").addEventListener("click", () => sharePhotos(photos));
+  document.getElementById("deleteAllBtn").addEventListener("click", () => {
+    if (confirm("撮影した " + photos.length + " 枚をすべて削除しますか?(保存していないものは戻せません)")) {
+      removePhotos(photos.map((_, i) => i));
+    }
   });
-  closeReview.addEventListener("click", () => review.classList.remove("open"));
-  saveBtn.addEventListener("click", savePhoto);
+  document.getElementById("closeViewer").addEventListener("click", closeViewerFn);
+  document.getElementById("saveOneBtn").addEventListener("click", () => {
+    if (viewIndex >= 0) sharePhotos([photos[viewIndex]]);
+  });
+  document.getElementById("deleteOneBtn").addEventListener("click", () => {
+    if (viewIndex >= 0) {
+      const i = viewIndex;
+      closeViewerFn();
+      removePhotos([i]);
+    }
+  });
 
   // バックグラウンド時はカメラを止める(プライバシー+電池)
+  // 写真はメモリ上に残るのでタブを閉じない限り消えない
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopCamera();
     else startCamera();
+  });
+
+  // 未保存の写真がある状態でタブを閉じようとしたら警告
+  window.addEventListener("beforeunload", (e) => {
+    if (photos.length > 0) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
   });
 
   startCamera();
