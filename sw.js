@@ -1,6 +1,6 @@
 // 静音カメラ Service Worker
 // 方式: キャッシュ優先 + 裏で更新版を取得(次回起動で反映)
-const CACHE = "quiet-cam-v1";
+const CACHE = "quiet-cam-v2";
 const ASSETS = ["./", "./index.html", "./manifest.json", "./icon.png"];
 
 // インストール時に全ファイルをキャッシュ

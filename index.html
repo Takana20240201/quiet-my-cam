@@ -215,6 +215,12 @@
     object-fit: cover;
     display: block;
   }
+  #galleryNote {
+    padding: 10px 20px 0;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--dim);
+  }
   #galleryBar {
     display: flex;
     gap: 10px;
@@ -312,6 +318,7 @@
 <div id="gallery">
   <div id="galleryHead">写真</div>
   <div id="grid"></div>
+  <div id="galleryNote">ここにある写真は端末内の一時保管です。iOSの空き容量が少なくなると自動的に削除されることがあるため、残したい写真は「保存」で写真アプリへ移してください。</div>
   <div id="galleryBar">
     <button class="btn" id="closeGallery">閉じる</button>
     <button class="btn danger" id="deleteAllBtn">すべて削除</button>
@@ -360,8 +367,71 @@
   let facing = "environment";   // 背面から開始
   let zoom = 1;                 // 現在のズーム倍率
   let zoomCap = null;           // ハードウェアズームの対応範囲
-  let photos = [];              // 撮影した写真 {blob, url, name} を全部保持
+  let photos = [];              // 撮影した写真 {id, blob, url, name}(IndexedDBにも永続保存)
   let viewIndex = -1;           // ビューワーで表示中の写真番号
+
+  // ---------- IndexedDB(写真の永続保存・端末内のみ) ----------
+  const DB_NAME = "quiet-cam";
+  const STORE = "photos";
+  let dbPromise = null;
+
+  function openDB() {
+    if (!dbPromise) {
+      dbPromise = new Promise((resolve, reject) => {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = () => {
+          req.result.createObjectStore(STORE, { keyPath: "id", autoIncrement: true });
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    }
+    return dbPromise;
+  }
+
+  function idbAdd(rec) {
+    return openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      const req = tx.objectStore(STORE).add(rec);
+      req.onsuccess = () => resolve(req.result); // 採番されたid
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  function idbDelete(id) {
+    return openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite");
+      tx.objectStore(STORE).delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  function idbAll() {
+    return openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE, "readonly");
+      const req = tx.objectStore(STORE).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error);
+    }));
+  }
+
+  // 起動時: 前回までの写真を復元
+  async function loadPhotos() {
+    try {
+      const recs = await idbAll();
+      recs.sort((a, b) => a.id - b.id);
+      photos = recs.map((r) => ({
+        id: r.id,
+        blob: r.blob,
+        name: r.name,
+        url: URL.createObjectURL(r.blob)
+      }));
+      updateThumb();
+    } catch (e) {
+      // IndexedDBが使えない環境でもメモリのみで動作継続
+    }
+  }
 
   // ---------- カメラ起動 ----------
   async function startCamera() {
@@ -495,13 +565,16 @@
       c.drawImage(video, sx, sy, sw, sh, 0, 0, dw, dh);
     }
 
-    canvas.toBlob((blob) => {
+    canvas.toBlob(async (blob) => {
       if (!blob) return;
-      photos.push({
+      const rec = {
         blob: blob,
-        url: URL.createObjectURL(blob),
-        name: "photo-" + timestamp() + "-" + photos.length + ".jpg"
-      });
+        name: "photo-" + timestamp() + "-" + String(Date.now() % 1000).padStart(3, "0") + ".jpg",
+        ts: Date.now()
+      };
+      let id = null;
+      try { id = await idbAdd(rec); } catch (e) { /* DB不可でもメモリで継続 */ }
+      photos.push({ id: id, blob: blob, name: rec.name, url: URL.createObjectURL(blob) });
       updateThumb();
     }, "image/jpeg", 0.92);
   }
@@ -592,7 +665,9 @@
   function removePhotos(indices) {
     // 後ろから消して番号ズレを防ぐ
     indices.sort((a, b) => b - a).forEach(i => {
-      URL.revokeObjectURL(photos[i].url);
+      const p = photos[i];
+      URL.revokeObjectURL(p.url);
+      if (p.id != null) idbDelete(p.id).catch(() => {});
       photos.splice(i, 1);
     });
     updateThumb();
@@ -630,25 +705,22 @@
   });
 
   // バックグラウンド時はカメラを止める(プライバシー+電池)
-  // 写真はメモリ上に残るのでタブを閉じない限り消えない
+  // 写真はIndexedDBに保存済みなので、アプリを閉じても消えない
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) stopCamera();
     else startCamera();
-  });
-
-  // 未保存の写真がある状態でタブを閉じようとしたら警告
-  window.addEventListener("beforeunload", (e) => {
-    if (photos.length > 0) {
-      e.preventDefault();
-      e.returnValue = "";
-    }
   });
 
   // Service Worker登録(オフライン対応)
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("./sw.js").catch(() => {});
   }
+  // ストレージの自動削除をされにくくするよう要求
+  if (navigator.storage && navigator.storage.persist) {
+    navigator.storage.persist().catch(() => {});
+  }
 
+  loadPhotos();
   startCamera();
 })();
 </script>
